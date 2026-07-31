@@ -324,14 +324,21 @@
   }
   .avatar-ring svg{ width:28px; height:28px; }
 
-  .image-tile{
+  .image-row{
     grid-column:1 / -1;
+    display:flex;
+    gap:12px;
+    min-height:150px;
+    max-height:38vh;
+  }
+
+  .image-tile{
     position:relative;
+    flex:1;
+    min-width:0;
     background:var(--bg-panel);
     border:1px dashed var(--border);
     border-radius:var(--radius);
-    min-height:150px;
-    max-height:38vh;
     display:flex; align-items:center; justify-content:center;
     overflow:hidden;
   }
@@ -352,6 +359,52 @@
     color:var(--text-faint); font-size:12.5px;
   }
   .image-placeholder svg{ width:26px; height:26px; opacity:.5; }
+
+  .side-panel{
+    flex:0 0 190px;
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:14px 15px;
+    display:flex; flex-direction:column;
+    gap:14px;
+    overflow:hidden;
+  }
+  .side-panel .eyebrow{
+    font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--text-faint);
+    margin-bottom:5px;
+  }
+  .side-block{ min-height:0; }
+  .side-block .editable{
+    font-size:14px; line-height:1.4;
+    color:var(--text);
+    outline:none;
+    border-radius:6px;
+    padding:3px 5px;
+    margin:-3px -5px;
+    cursor:text;
+    transition:background .15s;
+    overflow-wrap:break-word;
+  }
+  .side-block .editable:hover{ background:rgba(255,255,255,.03); }
+  .side-block .editable:focus{ background:var(--green-dim); box-shadow:0 0 0 1px var(--green); }
+  .side-block .editable:empty::before{
+    content:attr(data-placeholder);
+    color:var(--text-faint);
+  }
+  .side-block.accent .editable{
+    font-family:var(--font-display);
+    font-size:19px;
+    letter-spacing:.02em;
+    color:var(--green);
+    text-shadow:0 0 10px var(--green-glow);
+  }
+  .side-panel.side-right{ justify-content:flex-end; }
+
+  @media (max-width:780px){
+    .side-panel{ display:none; }
+  }
 
   /* ---------- CONTROLS ---------- */
   .controls{
@@ -481,13 +534,33 @@
       </div>
     </div>
 
-    <div class="image-tile" id="imageTile">
-      <div class="image-tile-label">Imagem do assunto</div>
-      <div class="image-placeholder" id="imagePlaceholder">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="8" cy="9" r="1.5"/></svg>
-        <span>Nenhuma imagem selecionada</span>
+    <div class="image-row">
+      <div class="side-panel side-left">
+        <div class="side-block accent">
+          <div class="eyebrow">Episódio</div>
+          <div class="editable" id="episodeField" contenteditable="true" data-placeholder="Ep. 01"></div>
+        </div>
+        <div class="side-block">
+          <div class="eyebrow">Tema de hoje</div>
+          <div class="editable" id="topicField" contenteditable="true" data-placeholder="Digite o assunto do episódio"></div>
+        </div>
       </div>
-      <img id="sharedImage" style="display:none;">
+
+      <div class="image-tile" id="imageTile">
+        <div class="image-tile-label">Imagem do assunto</div>
+        <div class="image-placeholder" id="imagePlaceholder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="8" cy="9" r="1.5"/></svg>
+          <span>Nenhuma imagem selecionada</span>
+        </div>
+        <img id="sharedImage" style="display:none;">
+      </div>
+
+      <div class="side-panel side-right">
+        <div class="side-block">
+          <div class="eyebrow">Siga o canal</div>
+          <div class="editable" id="socialField" contenteditable="true" data-placeholder="@estantedoheroigeek"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -591,6 +664,9 @@
   const removeImageBtn = $('removeImageBtn');
   const attachBtn = $('attachBtn');
   const imageInput = $('imageInput');
+  const episodeField = $('episodeField');
+  const topicField = $('topicField');
+  const socialField = $('socialField');
 
   const micBtn = $('micBtn');
   const camBtn = $('camBtn');
@@ -743,6 +819,9 @@
     if (msg.type === 'hello'){
       state.peerName = msg.name || (state.role === 'host' ? 'William' : 'Convidado');
       remoteNameLabel.textContent = state.peerName;
+      if (livePill.classList.contains('on')){
+        setStatus('Conectado com ' + state.peerName, 'live');
+      }
       sendData({ type:'hello', name: state.myName });
     } else if (msg.type === 'state'){
       state.peerMicOn = msg.mic;
@@ -922,9 +1001,26 @@
     });
   }
 
+  /* ---------------- Editable side panels (persisted locally) ---------------- */
+  const LS_KEYS = { episode:'edh_episode', topic:'edh_topic', social:'edh_social' };
+  function setupEditableField(el, key, defaultVal){
+    const saved = localStorage.getItem(key);
+    el.textContent = saved !== null ? saved : (defaultVal || '');
+    el.addEventListener('input', () => { localStorage.setItem(key, el.textContent); });
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter'){ e.preventDefault(); el.blur(); }
+    });
+  }
+  function initEditablePanels(){
+    setupEditableField(episodeField, LS_KEYS.episode, '');
+    setupEditableField(topicField, LS_KEYS.topic, '');
+    setupEditableField(socialField, LS_KEYS.social, '@estantedoheroigeek');
+  }
+
   /* ---------------- Init ---------------- */
   function init(){
     updateMicUI(); updateCamUI(); updateRemoteBadges();
+    initEditablePanels();
     const params = new URLSearchParams(window.location.search);
     const room = params.get('room');
 
