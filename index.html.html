@@ -328,8 +328,8 @@
     grid-column:1 / -1;
     display:flex;
     gap:12px;
-    min-height:150px;
-    max-height:38vh;
+    min-height:170px;
+    max-height:42vh;
   }
 
   .image-tile{
@@ -386,6 +386,13 @@
     cursor:text;
     transition:background .15s;
     overflow-wrap:break-word;
+    white-space:pre-wrap;
+  }
+  .side-block.topics{ flex:1; min-height:0; display:flex; flex-direction:column; }
+  .side-block.topics .editable{
+    flex:1;
+    overflow-y:auto;
+    min-height:0;
   }
   .side-block .editable:hover{ background:rgba(255,255,255,.03); }
   .side-block .editable:focus{ background:var(--green-dim); box-shadow:0 0 0 1px var(--green); }
@@ -401,6 +408,13 @@
     text-shadow:0 0 10px var(--green-glow);
   }
   .side-panel.side-right{ justify-content:flex-end; }
+
+  .social-row{
+    display:flex; align-items:center; gap:8px;
+  }
+  .social-row svg{ flex-shrink:0; }
+  .social-row .editable{ flex:1; min-width:0; }
+
 
   @media (max-width:780px){
     .side-panel{ display:none; }
@@ -540,9 +554,9 @@
           <div class="eyebrow">Episódio</div>
           <div class="editable" id="episodeField" contenteditable="true" data-placeholder="Ep. 01"></div>
         </div>
-        <div class="side-block">
-          <div class="eyebrow">Tema de hoje</div>
-          <div class="editable" id="topicField" contenteditable="true" data-placeholder="Digite o assunto do episódio"></div>
+        <div class="side-block topics">
+          <div class="eyebrow">Temas de hoje</div>
+          <div class="editable" id="topicField" contenteditable="true" data-placeholder="Liste os assuntos da quinzena, um por linha"></div>
         </div>
       </div>
 
@@ -558,7 +572,13 @@
       <div class="side-panel side-right">
         <div class="side-block">
           <div class="eyebrow">Siga o canal</div>
-          <div class="editable" id="socialField" contenteditable="true" data-placeholder="@estantedoheroigeek"></div>
+          <div class="social-row">
+            <svg viewBox="0 0 28 20" width="22" height="16" aria-hidden="true">
+              <path fill="#ff3b4e" d="M27.4 3.1c-.32-1.2-1.26-2.14-2.46-2.46C22.8 0 14 0 14 0S5.2 0 3.06.64C1.86.96.92 1.9.6 3.1.02 5.24 0 10 0 10s.02 4.76.6 6.9c.32 1.2 1.26 2.14 2.46 2.46C5.2 20 14 20 14 20s8.8 0 10.94-.64c1.2-.32 2.14-1.26 2.46-2.46.58-2.14.6-6.9.6-6.9s-.02-4.76-.6-6.9z"/>
+              <path fill="#fff" d="M11.2 14.3V5.7L18.6 10z"/>
+            </svg>
+            <div class="editable" id="socialField" contenteditable="true" data-placeholder="@estantedoheroigeek"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1003,18 +1023,27 @@
 
   /* ---------------- Editable side panels (persisted locally) ---------------- */
   const LS_KEYS = { episode:'edh_episode', topic:'edh_topic', social:'edh_social' };
-  function setupEditableField(el, key, defaultVal){
+  function setupEditableField(el, key, defaultVal, opts){
+    opts = opts || {};
     const saved = localStorage.getItem(key);
     el.textContent = saved !== null ? saved : (defaultVal || '');
     el.addEventListener('input', () => { localStorage.setItem(key, el.textContent); });
     el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter'){ e.preventDefault(); el.blur(); }
+      if (e.key === 'Enter'){
+        if (opts.multiline){
+          // allow a plain line break instead of a new <div>, then confirm the newline manually
+          e.preventDefault();
+          document.execCommand('insertLineBreak');
+        } else {
+          e.preventDefault(); el.blur();
+        }
+      }
     });
   }
   function initEditablePanels(){
     setupEditableField(episodeField, LS_KEYS.episode, '');
-    setupEditableField(topicField, LS_KEYS.topic, '');
-    setupEditableField(socialField, LS_KEYS.social, '@estantedoheroigeek');
+    setupEditableField(topicField, LS_KEYS.topic, '', { multiline:true });
+    setupEditableField(socialField, LS_KEYS.social, '@EstanteDoHeroiGeek');
   }
 
   /* ---------------- Init ---------------- */
