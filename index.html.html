@@ -348,12 +348,6 @@
     object-fit:contain;
     display:block;
   }
-  .image-tile-label{
-    position:absolute; top:10px; left:12px;
-    font-size:10.5px; letter-spacing:.14em; text-transform:uppercase;
-    color:var(--text-faint);
-    z-index:2;
-  }
   .image-placeholder{
     display:flex; flex-direction:column; align-items:center; gap:7px;
     color:var(--text-faint); font-size:12.5px;
@@ -400,6 +394,8 @@
     content:attr(data-placeholder);
     color:var(--text-faint);
   }
+  .side-block .editable.locked{ cursor:default; }
+  .side-block .editable.locked:hover{ background:none; }
   .side-block.accent .editable{
     font-family:var(--font-display);
     font-size:19px;
@@ -561,7 +557,6 @@
       </div>
 
       <div class="image-tile" id="imageTile">
-        <div class="image-tile-label">Imagem do assunto</div>
         <div class="image-placeholder" id="imagePlaceholder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="8" cy="9" r="1.5"/></svg>
           <span>Nenhuma imagem selecionada</span>
@@ -823,7 +818,7 @@
     sharedImage.style.display = 'block';
     imagePlaceholder.style.display = 'none';
     imageTile.classList.add('has-image');
-    removeImageBtn.style.display = 'inline-flex';
+    if (state.role !== 'guest') removeImageBtn.style.display = 'inline-flex';
   }
   function clearImage(){
     sharedImage.style.display = 'none';
@@ -851,6 +846,8 @@
       showImage(msg.src);
     } else if (msg.type === 'clear-image'){
       clearImage();
+    } else if (msg.type === 'meta'){
+      applyMetaPayload(msg);
     }
   }
 
@@ -897,7 +894,10 @@
   /* ---------------- Data connection setup (shared) ---------------- */
   function setupDataConn(conn){
     state.dataConn = conn;
-    conn.on('open', () => { sendData({ type:'hello', name: state.myName }); });
+    conn.on('open', () => {
+      sendData({ type:'hello', name: state.myName });
+      if (state.role === 'host') sendData(getMetaPayload());
+    });
     conn.on('data', handleDataMessage);
     conn.on('close', onRemoteDisconnected);
   }
@@ -905,6 +905,7 @@
   /* ================= HOST FLOW ================= */
   function startHost(){
     state.role = 'host';
+    applyRolePermissions();
     state.roomId = genRoomId();
     primaryActionBtn.disabled = true;
     primaryActionBtn.textContent = 'Ativando câmera…';
@@ -971,6 +972,7 @@
   /* ================= GUEST FLOW ================= */
   function startGuest(roomId){
     state.role = 'guest';
+    applyRolePermissions();
     state.roomId = roomId;
     primaryActionBtn.disabled = true;
     primaryActionBtn.textContent = 'Ativando câmera…';
@@ -1021,29 +1023,57 @@
     });
   }
 
-  /* ---------------- Editable side panels (persisted locally) ---------------- */
+  /* ---------------- Editable side panels (host-controlled, synced to guest) ---------------- */
   const LS_KEYS = { episode:'edh_episode', topic:'edh_topic', social:'edh_social' };
-  function setupEditableField(el, key, defaultVal, opts){
-    opts = opts || {};
-    const saved = localStorage.getItem(key);
-    el.textContent = saved !== null ? saved : (defaultVal || '');
-    el.addEventListener('input', () => { localStorage.setItem(key, el.textContent); });
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter'){
-        if (opts.multiline){
-          // allow a plain line break instead of a new <div>, then confirm the newline manually
-          e.preventDefault();
-          document.execCommand('insertLineBreak');
-        } else {
-          e.preventDefault(); el.blur();
-        }
-      }
+  const metaFields = [
+    { el: episodeField, key: LS_KEYS.episode, def: '' },
+    { el: topicField,   key: LS_KEYS.topic,   def: '' },
+    { el: socialField,  key: LS_KEYS.social,  def: '@EstanteDoHeroiGeek' }
+  ];
+
+  function getMetaPayload(){
+    return { type:'meta', episode: episodeField.innerHTML, topic: topicField.innerHTML, social: socialField.innerHTML };
+  }
+  function applyMetaPayload(msg){
+    episodeField.innerHTML = msg.episode || '';
+    topicField.innerHTML = msg.topic || '';
+    socialField.innerHTML = msg.social || '';
+  }
+
+  function initEditablePanels(){
+    metaFields.forEach(({ el, key, def }) => {
+      const saved = localStorage.getItem(key);
+      el.textContent = saved !== null ? saved : def;
+    });
+
+    topicField.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter'){ e.preventDefault(); document.execCommand('insertLineBreak'); }
+    });
+    [episodeField, socialField].forEach((el) => {
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter'){ e.preventDefault(); el.blur(); }
+      });
+    });
+
+    metaFields.forEach(({ el, key }) => {
+      el.addEventListener('input', () => {
+        if (state.role !== 'host') return; // safety net: guests can't type here anyway
+        localStorage.setItem(key, el.textContent);
+        sendData(getMetaPayload());
+      });
     });
   }
-  function initEditablePanels(){
-    setupEditableField(episodeField, LS_KEYS.episode, '');
-    setupEditableField(topicField, LS_KEYS.topic, '', { multiline:true });
-    setupEditableField(socialField, LS_KEYS.social, '@EstanteDoHeroiGeek');
+
+  /* Guest gets a read-only mirror of the host's panel + no image controls */
+  function applyRolePermissions(){
+    if (state.role === 'guest'){
+      [episodeField, topicField, socialField].forEach((el) => {
+        el.setAttribute('contenteditable', 'false');
+        el.classList.add('locked');
+      });
+      attachBtn.style.display = 'none';
+      removeImageBtn.style.display = 'none';
+    }
   }
 
   /* ---------------- Init ---------------- */
