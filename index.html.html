@@ -330,6 +330,15 @@
     gap:12px;
     min-height:170px;
     max-height:42vh;
+    transition:min-height .25s ease, max-height .25s ease;
+  }
+  .image-row.expanded{
+    min-height:72vh;
+    max-height:72vh;
+  }
+  .image-row.expanded .side-panel,
+  .image-row.expanded #coverTile{
+    display:none;
   }
 
   .image-tile{
@@ -382,6 +391,12 @@
   }
   .tile-icon-btn:hover{ border-color:var(--green); color:var(--green); }
   .tile-icon-btn svg{ width:14px; height:14px; }
+
+  .expand-wrap{
+    position:absolute; top:8px; right:8px;
+    display:none;
+    z-index:4;
+  }
 
   video::-webkit-media-controls{ display:none !important; }
 
@@ -591,7 +606,7 @@
       </div>
     </div>
 
-    <div class="image-row">
+    <div class="image-row" id="imageRow">
       <div class="side-panel side-left">
         <div class="side-block accent">
           <div class="eyebrow">Episódio</div>
@@ -627,6 +642,11 @@
         </div>
         <img id="sharedImage" style="display:none;">
         <video id="screenVideo" autoplay playsinline muted disablepictureinpicture disableremoteplayback controlsList="nofullscreen nodownload noremoteplayback"></video>
+        <div class="expand-wrap" id="expandWrap">
+          <button class="tile-icon-btn" id="expandBtn" title="Aumentar exibição">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>
+          </button>
+        </div>
       </div>
 
       <div class="side-panel side-right">
@@ -656,6 +676,10 @@
       Anexar imagem
     </button>
     <button class="ctrl-btn wide" id="removeImageBtn" title="Remover imagem" style="display:none;">Remover imagem</button>
+    <button class="ctrl-btn wide" id="slideshowBtn" title="Apresentação de slides (escolher pasta de imagens)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="width:16px;height:16px;"><rect x="3" y="3" width="13" height="13" rx="2"/><rect x="8" y="8" width="13" height="13" rx="2"/></svg>
+      Apresentação de slides
+    </button>
     <button class="ctrl-btn wide" id="screenShareBtn" title="Compartilhar tela">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="width:16px;height:16px;"><rect x="2.5" y="4.5" width="19" height="13" rx="2"/><path d="M8 20h8M12 17.5V20"/></svg>
       Compartilhar tela
@@ -665,6 +689,7 @@
     </button>
   </div>
   <input type="file" id="imageInput" accept="image/*">
+  <input type="file" id="slideshowInput" accept="image/*" multiple webkitdirectory style="display:none;">
 </div>
 
 <div class="channel-tag" id="channelTag"><b>Estante do Herói Geek</b> · direto da estante</div>
@@ -699,6 +724,9 @@
     micBadgeOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l18 18M9 5a3 3 0 016 0v6c0 .5-.08.98-.23 1.42M6.5 9.5V11a7 7 0 0010.8 5.9M12 18v3"/></svg>'
   };
 
+  /* ---------------- Config ---------------- */
+  const SLIDESHOW_INTERVAL_MS = 7000;
+
   /* ---------------- State ---------------- */
   const state = {
     role: null,            // 'host' | 'guest'
@@ -713,6 +741,11 @@
     screenStream: null,
     screenCall: null,
     coverSrc: null,
+    slideshowImages: [],
+    slideshowOrder: [],
+    slideshowIndex: 0,
+    slideshowTimer: null,
+    imageExpanded: false,
     micOn: true,
     camOn: true,
     peerMicOn: true,
@@ -758,6 +791,11 @@
   const imageInput = $('imageInput');
   const screenShareBtn = $('screenShareBtn');
   const screenVideo = $('screenVideo');
+  const slideshowBtn = $('slideshowBtn');
+  const slideshowInput = $('slideshowInput');
+  const imageRow = $('imageRow');
+  const expandWrap = $('expandWrap');
+  const expandBtn = $('expandBtn');
 
   const coverTile = $('coverTile');
   const coverPlaceholder = $('coverPlaceholder');
@@ -867,6 +905,7 @@
   /* ---------------- Image attach ---------------- */
   attachBtn.addEventListener('click', () => {
     if (state.screenStream) stopScreenShare();
+    if (state.slideshowTimer) stopSlideshow(false);
     imageInput.click();
   });
   imageInput.addEventListener('change', (e) => {
@@ -879,9 +918,103 @@
     imageInput.value = '';
   });
   removeImageBtn.addEventListener('click', () => {
+    if (state.slideshowTimer) stopSlideshow(false);
     clearImage();
     sendData({ type:'clear-image' });
   });
+
+  /* ---------------- Slideshow (random presentation from a folder of images) ---------------- */
+  function shuffleArray(arr){
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+  function updateSlideshowUI(active){
+    slideshowBtn.classList.toggle('live', active);
+    slideshowBtn.innerHTML = active
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="width:16px;height:16px;"><rect x="3" y="3" width="13" height="13" rx="2"/><rect x="8" y="8" width="13" height="13" rx="2"/></svg>Parar apresentação'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="width:16px;height:16px;"><rect x="3" y="3" width="13" height="13" rx="2"/><rect x="8" y="8" width="13" height="13" rx="2"/></svg>Apresentação de slides';
+  }
+  function showSlide(){
+    const src = state.slideshowImages[state.slideshowOrder[state.slideshowIndex]];
+    if (!src) return;
+    showImage(src);
+    sendData({ type:'image', src });
+  }
+  function nextSlide(){
+    state.slideshowIndex++;
+    if (state.slideshowIndex >= state.slideshowOrder.length){
+      state.slideshowOrder = shuffleArray(state.slideshowImages.map((_, i) => i));
+      state.slideshowIndex = 0;
+    }
+    showSlide();
+  }
+  function startSlideshow(images){
+    if (!images.length) return;
+    if (state.screenStream) stopScreenShare();
+    state.slideshowImages = images;
+    state.slideshowOrder = shuffleArray(images.map((_, i) => i));
+    state.slideshowIndex = 0;
+    showSlide();
+    state.slideshowTimer = setInterval(nextSlide, SLIDESHOW_INTERVAL_MS);
+    updateSlideshowUI(true);
+  }
+  function stopSlideshow(clearDisplay){
+    if (state.slideshowTimer){ clearInterval(state.slideshowTimer); state.slideshowTimer = null; }
+    state.slideshowImages = [];
+    state.slideshowOrder = [];
+    state.slideshowIndex = 0;
+    updateSlideshowUI(false);
+    if (clearDisplay){
+      clearImage();
+      sendData({ type:'clear-image' });
+    }
+  }
+  slideshowBtn.addEventListener('click', () => {
+    if (state.slideshowTimer){ stopSlideshow(true); }
+    else { slideshowInput.click(); }
+  });
+  slideshowInput.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files).filter(f => f.type && f.type.startsWith('image/'));
+    slideshowInput.value = '';
+    if (!files.length){
+      alert('Nenhuma imagem foi encontrada na pasta selecionada.');
+      return;
+    }
+    const results = new Array(files.length);
+    let loaded = 0;
+    files.forEach((file, i) => {
+      compressImage(file, (dataUrl) => {
+        results[i] = dataUrl;
+        loaded++;
+        if (loaded === files.length){
+          startSlideshow(results.filter(Boolean));
+        }
+      });
+    });
+  });
+
+  /* ---------------- Expand / collapse the image display ---------------- */
+  function updateExpandUI(active){
+    expandBtn.innerHTML = active
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>';
+    expandBtn.title = active ? 'Reduzir exibição' : 'Aumentar exibição';
+  }
+  function setExpanded(val){
+    state.imageExpanded = val;
+    imageRow.classList.toggle('expanded', val);
+    updateExpandUI(val);
+  }
+  function refreshExpandAvailability(){
+    const contentPresent = imageTile.classList.contains('has-image') || imageTile.classList.contains('screen-active');
+    expandWrap.style.display = contentPresent ? 'flex' : 'none';
+    if (!contentPresent && state.imageExpanded) setExpanded(false);
+  }
+  expandBtn.addEventListener('click', () => setExpanded(!state.imageExpanded));
 
   /* ---------------- Cover (fixed) image ---------------- */
   const LS_COVER = 'edh_cover';
@@ -945,6 +1078,7 @@
     imagePlaceholder.style.display = 'none';
     imageTile.classList.add('has-image');
     if (state.role !== 'guest') removeImageBtn.style.display = 'inline-flex';
+    refreshExpandAvailability();
   }
   function clearImage(){
     sharedImage.style.display = 'none';
@@ -952,6 +1086,7 @@
     imagePlaceholder.style.display = 'flex';
     imageTile.classList.remove('has-image');
     removeImageBtn.style.display = 'none';
+    refreshExpandAvailability();
   }
 
   /* ---------------- Screen share ---------------- */
@@ -965,10 +1100,12 @@
   function showScreenVideo(stream){
     screenVideo.srcObject = stream;
     imageTile.classList.add('screen-active');
+    refreshExpandAvailability();
   }
   function hideScreenVideo(){
     screenVideo.srcObject = null;
     imageTile.classList.remove('screen-active');
+    refreshExpandAvailability();
   }
 
   async function startScreenShare(){
@@ -976,6 +1113,7 @@
       alert('Compartilhamento de tela não é suportado neste navegador/dispositivo.');
       return;
     }
+    if (state.slideshowTimer) stopSlideshow(false);
     try{
       const stream = await navigator.mediaDevices.getDisplayMedia({ video:true, audio:false });
       state.screenStream = stream;
@@ -1035,6 +1173,7 @@
   function leaveRoom(){
     try{ if (state.localStream) state.localStream.getTracks().forEach(t => t.stop()); }catch(e){}
     try{ if (state.screenStream) state.screenStream.getTracks().forEach(t => t.stop()); }catch(e){}
+    try{ if (state.slideshowTimer) clearInterval(state.slideshowTimer); }catch(e){}
     try{ if (state.call) state.call.close(); }catch(e){}
     try{ if (state.screenCall) state.screenCall.close(); }catch(e){}
     try{ if (state.dataConn) state.dataConn.close(); }catch(e){}
@@ -1269,6 +1408,7 @@
       removeImageBtn.style.display = 'none';
       coverActions.style.display = 'none';
       screenShareBtn.style.display = 'none';
+      slideshowBtn.style.display = 'none';
     }
   }
 
