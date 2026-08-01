@@ -263,6 +263,10 @@
     grid-template-rows:1fr auto;
     gap:14px;
     padding-bottom:14px;
+    transition:grid-template-rows .25s ease;
+  }
+  .grid.expanded{
+    grid-template-rows:130px 1fr;
   }
 
   .video-tile{
@@ -333,8 +337,8 @@
     transition:min-height .25s ease, max-height .25s ease;
   }
   .image-row.expanded{
-    min-height:72vh;
-    max-height:72vh;
+    min-height:0;
+    max-height:none;
   }
   .image-row.expanded .side-panel,
   .image-row.expanded #coverTile{
@@ -530,6 +534,7 @@
 
   @media (max-width:780px){
     .grid{ grid-template-columns:1fr; grid-template-rows:1fr 1fr auto; }
+    .grid.expanded{ grid-template-rows:70px 70px 1fr; }
     .top-bar .show-title{ font-size:22px; }
     .title{ font-size:38px; }
   }
@@ -575,7 +580,7 @@
     <div class="status-text"><span class="status-dot" id="statusDot"></span><span id="statusText">Conectando…</span></div>
   </div>
 
-  <div class="grid">
+  <div class="grid" id="stageGrid">
     <div class="video-tile" id="localTile">
       <video id="localVideo" autoplay playsinline muted disablepictureinpicture disableremoteplayback controlsList="nofullscreen nodownload noremoteplayback"></video>
       <div class="cam-off-cover" id="localCamOff">
@@ -794,6 +799,7 @@
   const slideshowBtn = $('slideshowBtn');
   const slideshowInput = $('slideshowInput');
   const imageRow = $('imageRow');
+  const stageGrid = $('stageGrid');
   const expandWrap = $('expandWrap');
   const expandBtn = $('expandBtn');
 
@@ -905,7 +911,6 @@
   /* ---------------- Image attach ---------------- */
   attachBtn.addEventListener('click', () => {
     if (state.screenStream) stopScreenShare();
-    if (state.slideshowTimer) stopSlideshow(false);
     imageInput.click();
   });
   imageInput.addEventListener('change', (e) => {
@@ -918,12 +923,71 @@
     imageInput.value = '';
   });
   removeImageBtn.addEventListener('click', () => {
-    if (state.slideshowTimer) stopSlideshow(false);
     clearImage();
     sendData({ type:'clear-image' });
   });
 
-  /* ---------------- Slideshow (random presentation from a folder of images) ---------------- */
+  /* ---------------- Expand / collapse the image display ---------------- */
+  function updateExpandUI(active){
+    expandBtn.innerHTML = active
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>';
+    expandBtn.title = active ? 'Reduzir exibição' : 'Aumentar exibição';
+  }
+  function setExpanded(val){
+    state.imageExpanded = val;
+    imageRow.classList.toggle('expanded', val);
+    stageGrid.classList.toggle('expanded', val);
+    updateExpandUI(val);
+  }
+  function refreshExpandAvailability(){
+    const contentPresent = imageTile.classList.contains('has-image') || imageTile.classList.contains('screen-active');
+    expandWrap.style.display = contentPresent ? 'flex' : 'none';
+    if (!contentPresent && state.imageExpanded) setExpanded(false);
+  }
+  expandBtn.addEventListener('click', () => setExpanded(!state.imageExpanded));
+
+  /* ---------------- Cover (fixed) image ---------------- */
+  const LS_COVER = 'edh_cover';
+  coverAttachBtn.addEventListener('click', () => {
+    if (state.slideshowTimer) stopSlideshow(false);
+    coverInput.click();
+  });
+  coverInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    compressImage(file, (dataUrl) => {
+      showCover(dataUrl);
+      localStorage.setItem(LS_COVER, dataUrl);
+      sendData({ type:'cover', src: dataUrl });
+    });
+    coverInput.value = '';
+  });
+  coverRemoveBtn.addEventListener('click', () => {
+    if (state.slideshowTimer) stopSlideshow(false);
+    clearCover();
+    localStorage.removeItem(LS_COVER);
+    sendData({ type:'clear-cover' });
+  });
+
+  function showCover(src){
+    state.coverSrc = src;
+    coverImage.src = src;
+    coverImage.style.display = 'block';
+    coverPlaceholder.style.display = 'none';
+    coverTile.classList.add('has-image');
+    if (state.role !== 'guest') coverRemoveBtn.style.display = 'inline-flex';
+  }
+  function clearCover(){
+    state.coverSrc = null;
+    coverImage.style.display = 'none';
+    coverImage.src = '';
+    coverPlaceholder.style.display = 'flex';
+    coverTile.classList.remove('has-image');
+    coverRemoveBtn.style.display = 'none';
+  }
+
+  /* ---------------- Slideshow (random presentation from a folder of images, on the cover tile) ---------------- */
   function shuffleArray(arr){
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--){
@@ -941,8 +1005,8 @@
   function showSlide(){
     const src = state.slideshowImages[state.slideshowOrder[state.slideshowIndex]];
     if (!src) return;
-    showImage(src);
-    sendData({ type:'image', src });
+    showCover(src);
+    sendData({ type:'cover', src });
   }
   function nextSlide(){
     state.slideshowIndex++;
@@ -954,7 +1018,6 @@
   }
   function startSlideshow(images){
     if (!images.length) return;
-    if (state.screenStream) stopScreenShare();
     state.slideshowImages = images;
     state.slideshowOrder = shuffleArray(images.map((_, i) => i));
     state.slideshowIndex = 0;
@@ -969,8 +1032,14 @@
     state.slideshowIndex = 0;
     updateSlideshowUI(false);
     if (clearDisplay){
-      clearImage();
-      sendData({ type:'clear-image' });
+      const savedCover = localStorage.getItem(LS_COVER);
+      if (savedCover){
+        showCover(savedCover);
+        sendData({ type:'cover', src: savedCover });
+      } else {
+        clearCover();
+        sendData({ type:'clear-cover' });
+      }
     }
   }
   slideshowBtn.addEventListener('click', () => {
@@ -996,61 +1065,6 @@
       });
     });
   });
-
-  /* ---------------- Expand / collapse the image display ---------------- */
-  function updateExpandUI(active){
-    expandBtn.innerHTML = active
-      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5"/></svg>'
-      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>';
-    expandBtn.title = active ? 'Reduzir exibição' : 'Aumentar exibição';
-  }
-  function setExpanded(val){
-    state.imageExpanded = val;
-    imageRow.classList.toggle('expanded', val);
-    updateExpandUI(val);
-  }
-  function refreshExpandAvailability(){
-    const contentPresent = imageTile.classList.contains('has-image') || imageTile.classList.contains('screen-active');
-    expandWrap.style.display = contentPresent ? 'flex' : 'none';
-    if (!contentPresent && state.imageExpanded) setExpanded(false);
-  }
-  expandBtn.addEventListener('click', () => setExpanded(!state.imageExpanded));
-
-  /* ---------------- Cover (fixed) image ---------------- */
-  const LS_COVER = 'edh_cover';
-  coverAttachBtn.addEventListener('click', () => coverInput.click());
-  coverInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    compressImage(file, (dataUrl) => {
-      showCover(dataUrl);
-      localStorage.setItem(LS_COVER, dataUrl);
-      sendData({ type:'cover', src: dataUrl });
-    });
-    coverInput.value = '';
-  });
-  coverRemoveBtn.addEventListener('click', () => {
-    clearCover();
-    localStorage.removeItem(LS_COVER);
-    sendData({ type:'clear-cover' });
-  });
-
-  function showCover(src){
-    state.coverSrc = src;
-    coverImage.src = src;
-    coverImage.style.display = 'block';
-    coverPlaceholder.style.display = 'none';
-    coverTile.classList.add('has-image');
-    if (state.role !== 'guest') coverRemoveBtn.style.display = 'inline-flex';
-  }
-  function clearCover(){
-    state.coverSrc = null;
-    coverImage.style.display = 'none';
-    coverImage.src = '';
-    coverPlaceholder.style.display = 'flex';
-    coverTile.classList.remove('has-image');
-    coverRemoveBtn.style.display = 'none';
-  }
 
   function compressImage(file, cb){
     const img = new Image();
