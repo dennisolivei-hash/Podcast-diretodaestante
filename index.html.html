@@ -405,6 +405,26 @@
     z-index:4;
   }
 
+  #stageGrid.cam-spotlight-local #localTile,
+  #stageGrid.cam-spotlight-remote #remoteTile{
+    position:fixed;
+    left:20px; right:20px; top:78px; bottom:104px;
+    z-index:40;
+    width:auto; height:auto;
+  }
+  #stageGrid.cam-spotlight-local #remoteTile,
+  #stageGrid.cam-spotlight-remote #localTile{
+    position:fixed;
+    right:26px; bottom:112px;
+    width:200px; height:128px;
+    z-index:41;
+    box-shadow:0 10px 30px rgba(0,0,0,.6);
+  }
+  #stageGrid.cam-spotlight-local .image-row,
+  #stageGrid.cam-spotlight-remote .image-row{
+    display:none;
+  }
+
   video::-webkit-media-controls{ display:none !important; }
 
   .side-panel{
@@ -584,6 +604,11 @@
     .grid.expanded{ grid-template-rows:70px 70px 1fr; }
     .top-bar .show-logo{ height:30px; }
     .title{ font-size:38px; }
+    #stageGrid.cam-spotlight-local #remoteTile,
+    #stageGrid.cam-spotlight-remote #localTile{
+      width:120px; height:80px;
+      right:16px; bottom:104px;
+    }
   }
 </style>
 </head>
@@ -639,6 +664,11 @@
         <span class="badge" id="localMicBadge"></span>
         <span id="localNameLabel">Você</span>
       </div>
+      <div class="expand-wrap" id="localSpotlightWrap" style="display:flex;">
+        <button class="tile-icon-btn" id="localSpotlightBtn" title="Aumentar minha câmera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>
+        </button>
+      </div>
     </div>
 
     <div class="video-tile" id="remoteTile">
@@ -655,6 +685,11 @@
       <div class="tile-label" id="remoteLabelWrap" style="display:none;">
         <span class="badge" id="remoteMicBadge"></span>
         <span id="remoteNameLabel">Convidado</span>
+      </div>
+      <div class="expand-wrap" id="remoteSpotlightWrap" style="display:flex;">
+        <button class="tile-icon-btn" id="remoteSpotlightBtn" title="Aumentar câmera do convidado">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>
+        </button>
       </div>
     </div>
 
@@ -814,6 +849,7 @@
     slideshowIndex: 0,
     slideshowTimer: null,
     imageExpanded: false,
+    camSpotlightTarget: null,
     micOn: true,
     camOn: true,
     peerMicOn: true,
@@ -865,6 +901,10 @@
   const stageGrid = $('stageGrid');
   const expandWrap = $('expandWrap');
   const expandBtn = $('expandBtn');
+  const localSpotlightBtn = $('localSpotlightBtn');
+  const remoteSpotlightBtn = $('remoteSpotlightBtn');
+  const localSpotlightWrap = $('localSpotlightWrap');
+  const remoteSpotlightWrap = $('remoteSpotlightWrap');
 
   const coverTile = $('coverTile');
   const coverPlaceholder = $('coverPlaceholder');
@@ -1072,6 +1112,7 @@
     imageRow.classList.toggle('expanded', val);
     stageGrid.classList.toggle('expanded', val);
     updateExpandUI(val);
+    if (val && state.camSpotlightTarget) applyCamSpotlight(null);
     if (!fromRemote) sendData({ type:'expand-state', expanded: val });
   }
   function refreshExpandAvailability(){
@@ -1080,6 +1121,40 @@
     if (!contentPresent && state.imageExpanded) setExpanded(false);
   }
   expandBtn.addEventListener('click', () => setExpanded(!state.imageExpanded));
+
+  /* ---------------- Camera spotlight (enlarge one specific camera, synced) ---------------- */
+  function updateCamSpotlightUI(){
+    const mine = state.camSpotlightTarget && state.camSpotlightTarget === state.role;
+    const other = state.camSpotlightTarget && !mine;
+    const collapseIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5"/></svg>';
+    const expandIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>';
+    localSpotlightBtn.innerHTML = mine ? collapseIcon : expandIcon;
+    localSpotlightBtn.title = mine ? 'Reduzir minha câmera' : 'Aumentar minha câmera';
+    remoteSpotlightBtn.innerHTML = other ? collapseIcon : expandIcon;
+    remoteSpotlightBtn.title = other ? 'Reduzir câmera do convidado' : 'Aumentar câmera do convidado';
+  }
+  function applyCamSpotlight(targetRole){
+    state.camSpotlightTarget = targetRole;
+    stageGrid.classList.remove('cam-spotlight-local', 'cam-spotlight-remote');
+    if (targetRole){
+      stageGrid.classList.add(targetRole === state.role ? 'cam-spotlight-local' : 'cam-spotlight-remote');
+      if (state.imageExpanded) setExpanded(false, true);
+    }
+    updateCamSpotlightUI();
+  }
+  function setCameraSpotlight(targetRole){
+    applyCamSpotlight(targetRole);
+    sendData({ type:'cam-spotlight-state', targetRole: targetRole });
+  }
+  localSpotlightBtn.addEventListener('click', () => {
+    const next = (state.camSpotlightTarget === state.role) ? null : state.role;
+    setCameraSpotlight(next);
+  });
+  remoteSpotlightBtn.addEventListener('click', () => {
+    const otherRole = state.role === 'host' ? 'guest' : 'host';
+    const next = (state.camSpotlightTarget === otherRole) ? null : otherRole;
+    setCameraSpotlight(next);
+  });
 
   /* ---------------- Cover (fixed) image ---------------- */
   const LS_COVER = 'edh_cover';
@@ -1314,6 +1389,8 @@
       hideScreenVideo();
     } else if (msg.type === 'expand-state'){
       setExpanded(!!msg.expanded, true);
+    } else if (msg.type === 'cam-spotlight-state'){
+      applyCamSpotlight(msg.targetRole || null);
     } else if (msg.type === 'meta'){
       applyMetaPayload(msg);
     }
@@ -1561,6 +1638,8 @@
       coverActions.style.display = 'none';
       screenShareBtn.style.display = 'none';
       slideshowBtn.style.display = 'none';
+      localSpotlightWrap.style.display = 'none';
+      remoteSpotlightWrap.style.display = 'none';
     }
   }
 
