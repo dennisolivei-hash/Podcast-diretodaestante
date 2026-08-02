@@ -315,6 +315,39 @@
   }
   .empty-tile svg{ width:34px; height:34px; opacity:.6; }
 
+  .invite-inline{
+    display:flex; align-items:center; gap:8px;
+    margin-top:6px;
+    max-width:88%;
+  }
+  .invite-inline input{
+    width:170px; max-width:40vw;
+    background:var(--bg-panel-2);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:7px 10px;
+    color:var(--text-dim);
+    font-size:12px;
+  }
+  .invite-inline button{
+    flex-shrink:0;
+    background:var(--green-dim);
+    border:1px solid var(--green);
+    color:var(--green);
+    border-radius:8px;
+    padding:7px 12px;
+    font-size:12px; font-weight:600;
+    cursor:pointer;
+  }
+  .invite-inline button:hover{ background:var(--green); color:#04140c; }
+
+  .cam-size-ctrl{
+    position:absolute; top:8px; right:8px;
+    display:flex;
+    gap:6px;
+    z-index:4;
+  }
+
   .cam-off-cover{
     position:absolute; inset:0;
     display:none;
@@ -594,19 +627,14 @@
   <div class="card">
     <div class="brand-tag">Estante do Herói Geek</div>
     <div class="title">DIRETO DA ESTANTE</div>
-    <div class="subtitle" id="subtitleText">Estúdio virtual do podcast, endereço fixo. Ative sua câmera e microfone e entre.</div>
+    <div class="subtitle" id="subtitleText">Estúdio virtual do podcast. Ative sua câmera e microfone para entrar.</div>
 
     <div class="field">
       <label for="nameInput">Seu nome</label>
       <input type="text" id="nameInput" placeholder="Ex: Denis" maxlength="24">
     </div>
 
-    <button class="btn btn-primary" id="primaryActionBtn">Entrar no estúdio</button>
-
-    <div class="waiting-pulse" id="waitingPulse">
-      <div class="dot-pulse"></div>
-      <span id="waitingText">Aguardando o outro participante entrar…</span>
-    </div>
+    <button class="btn btn-primary" id="primaryActionBtn">Criar sala</button>
 
     <div class="error-box" id="errorBox"></div>
   </div>
@@ -632,6 +660,14 @@
         <span class="badge" id="localMicBadge"></span>
         <span id="localNameLabel">Você</span>
       </div>
+      <div class="cam-size-ctrl" id="localCamSizeCtrl">
+        <button class="tile-icon-btn" id="localCamShrinkBtn" title="Diminuir esta câmera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>
+        </button>
+        <button class="tile-icon-btn" id="localCamGrowBtn" title="Aumentar esta câmera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
     </div>
 
     <div class="video-tile" id="remoteTile">
@@ -639,6 +675,10 @@
       <div class="empty-tile" id="remoteEmpty">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="M15 10l6-3v10l-6-3"/></svg>
         <span id="remoteEmptyText">Aguardando conexão…</span>
+        <div class="invite-inline" id="inviteInline" style="display:none;">
+          <input type="text" id="inviteLinkInput" readonly>
+          <button id="inviteCopyBtn">Copiar link</button>
+        </div>
       </div>
       <div class="cam-off-cover" id="remoteCamOff">
         <div class="avatar-ring">
@@ -648,6 +688,14 @@
       <div class="tile-label" id="remoteLabelWrap" style="display:none;">
         <span class="badge" id="remoteMicBadge"></span>
         <span id="remoteNameLabel">Convidado</span>
+      </div>
+      <div class="cam-size-ctrl" id="remoteCamSizeCtrl">
+        <button class="tile-icon-btn" id="remoteCamShrinkBtn" title="Diminuir esta câmera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>
+        </button>
+        <button class="tile-icon-btn" id="remoteCamGrowBtn" title="Aumentar esta câmera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
       </div>
     </div>
 
@@ -793,7 +841,6 @@
 
   /* ---------------- Config ---------------- */
   const SLIDESHOW_INTERVAL_MS = 7000;
-  const FIXED_ROOM_ID = 'edh-direto-da-estante-sala-fixa';
 
   /* ---------------- State ---------------- */
   const state = {
@@ -815,6 +862,8 @@
     slideshowTimer: null,
     imageExpanded: false,
     camSizeIndex: 0,
+    localCamWeightIdx: 2,
+    remoteCamWeightIdx: 2,
     micOn: true,
     camOn: true,
     peerMicOn: true,
@@ -829,8 +878,6 @@
   const subtitleText = $('subtitleText');
   const nameInput = $('nameInput');
   const primaryActionBtn = $('primaryActionBtn');
-  const waitingPulse = $('waitingPulse');
-  const waitingText = $('waitingText');
   const errorBox = $('errorBox');
 
   const localVideo = $('localVideo');
@@ -839,6 +886,9 @@
   const remoteCamOff = $('remoteCamOff');
   const remoteEmpty = $('remoteEmpty');
   const remoteEmptyText = $('remoteEmptyText');
+  const inviteInline = $('inviteInline');
+  const inviteLinkInput = $('inviteLinkInput');
+  const inviteCopyBtn = $('inviteCopyBtn');
   const remoteLabelWrap = $('remoteLabelWrap');
   const localNameLabel = $('localNameLabel');
   const remoteNameLabel = $('remoteNameLabel');
@@ -883,6 +933,12 @@
   const cameraList = $('cameraList');
   const camShrinkBtn = $('camShrinkBtn');
   const camGrowBtn = $('camGrowBtn');
+  const localCamShrinkBtn = $('localCamShrinkBtn');
+  const localCamGrowBtn = $('localCamGrowBtn');
+  const remoteCamShrinkBtn = $('remoteCamShrinkBtn');
+  const remoteCamGrowBtn = $('remoteCamGrowBtn');
+  const localCamSizeCtrl = $('localCamSizeCtrl');
+  const remoteCamSizeCtrl = $('remoteCamSizeCtrl');
   const leaveBtn = $('leaveBtn');
   const controls = $('controls');
   const channelTag = $('channelTag');
@@ -899,6 +955,12 @@
   function setStatus(text, kind){
     statusText.textContent = text;
     statusDot.className = 'status-dot' + (kind ? ' ' + kind : '');
+  }
+
+  function genRoomId(){
+    const bytes = new Uint8Array(5);
+    crypto.getRandomValues(bytes);
+    return 'edh-' + Array.from(bytes, b => b.toString(16).padStart(2,'0')).join('');
   }
 
   function updateMicUI(){
@@ -1063,14 +1125,26 @@
   }
   /* ---------------- Camera row sizing (host-only: manual size + auto expand) ---------------- */
   const CAM_SIZE_PRESETS = ['1fr', '58vh', '46vh', '34vh', '24vh'];
+  const CAM_WEIGHT_STEPS = [0.5, 0.75, 1, 1.5, 2, 2.5];
   function applyGridRows(){
     const isMobile = window.matchMedia('(max-width:780px)').matches;
+    const lw = CAM_WEIGHT_STEPS[state.localCamWeightIdx];
+    const rw = CAM_WEIGHT_STEPS[state.remoteCamWeightIdx];
     if (state.imageExpanded){
+      stageGrid.style.gridTemplateColumns = '1fr 1fr';
       stageGrid.style.gridTemplateRows = isMobile ? '70px 70px 1fr' : '130px 1fr';
       return;
     }
     const camSize = CAM_SIZE_PRESETS[state.camSizeIndex];
-    stageGrid.style.gridTemplateRows = isMobile ? (camSize + ' ' + camSize + ' auto') : (camSize + ' auto');
+    if (isMobile){
+      stageGrid.style.gridTemplateColumns = '1fr';
+      stageGrid.style.gridTemplateRows = (camSize === '1fr')
+        ? (lw + 'fr ' + rw + 'fr auto')
+        : (camSize + ' ' + camSize + ' auto');
+    } else {
+      stageGrid.style.gridTemplateRows = camSize + ' auto';
+      stageGrid.style.gridTemplateColumns = lw + 'fr ' + rw + 'fr';
+    }
   }
   window.addEventListener('resize', applyGridRows);
   camShrinkBtn.addEventListener('click', () => {
@@ -1084,6 +1158,18 @@
       state.camSizeIndex--;
       applyGridRows();
     }
+  });
+  localCamShrinkBtn.addEventListener('click', () => {
+    if (state.localCamWeightIdx > 0){ state.localCamWeightIdx--; applyGridRows(); }
+  });
+  localCamGrowBtn.addEventListener('click', () => {
+    if (state.localCamWeightIdx < CAM_WEIGHT_STEPS.length - 1){ state.localCamWeightIdx++; applyGridRows(); }
+  });
+  remoteCamShrinkBtn.addEventListener('click', () => {
+    if (state.remoteCamWeightIdx > 0){ state.remoteCamWeightIdx--; applyGridRows(); }
+  });
+  remoteCamGrowBtn.addEventListener('click', () => {
+    if (state.remoteCamWeightIdx < CAM_WEIGHT_STEPS.length - 1){ state.remoteCamWeightIdx++; applyGridRows(); }
   });
 
   function setExpanded(val, fromRemote){
@@ -1395,121 +1481,127 @@
     conn.on('close', onRemoteDisconnected);
   }
 
-  /* ================= CONNECTION FLOW (fixed address, auto host/guest) ================= */
-  function resetStartButton(text){
-    primaryActionBtn.disabled = false;
-    primaryActionBtn.style.display = 'block';
-    primaryActionBtn.textContent = text || 'Entrar no estúdio';
-    nameInput.disabled = false;
-    waitingPulse.style.display = 'none';
-  }
-
-  function beginConnection(){
+  /* ================= HOST FLOW ================= */
+  function startHost(){
+    state.role = 'host';
+    applyRolePermissions();
+    state.roomId = genRoomId();
     primaryActionBtn.disabled = true;
     primaryActionBtn.textContent = 'Ativando câmera…';
     navigator.mediaDevices.getUserMedia({ video:true, audio:true }).then((stream) => {
       state.localStream = stream;
       localVideo.srcObject = stream;
-      primaryActionBtn.style.display = 'none';
-      nameInput.disabled = true;
-      waitingPulse.style.display = 'flex';
-      waitingText.textContent = 'Conectando ao estúdio…';
-      subtitleText.textContent = 'Conectando ao endereço fixo do estúdio…';
-      tryBecomeHost(stream);
+
+      // Enter the stage right away — no need to wait for the guest to join too.
+      enterStage();
+      remoteEmptyText.textContent = 'Gerando o link da sala…';
+
+      state.peer = new Peer(state.roomId, { debug: 1 });
+
+      state.peer.on('open', () => {
+        const link = window.location.origin + window.location.pathname + '?room=' + state.roomId;
+        inviteLinkInput.value = link;
+        inviteInline.style.display = 'flex';
+        remoteEmptyText.textContent = 'Aguardando o convidado entrar…';
+      });
+
+      state.peer.on('call', (call) => {
+        state.call = call;
+        state.remotePeerId = call.peer;
+        call.answer(state.localStream);
+        call.on('stream', (remoteStream) => {
+          remoteVideo.srcObject = remoteStream;
+          onRemoteConnected();
+        });
+        call.on('close', onRemoteDisconnected);
+      });
+
+      state.peer.on('connection', (conn) => setupDataConn(conn));
+
+      state.peer.on('error', (err) => {
+        console.error(err);
+        if (String(err.type) === 'unavailable-id'){
+          remoteEmptyText.textContent = 'Essa sala já está em uso. Recarregue a página e tente novamente.';
+        } else {
+          remoteEmptyText.textContent = 'Erro de conexão (' + err.type + '). Verifique sua internet.';
+        }
+      });
+
+      state.peer.on('disconnected', () => { state.peer.reconnect(); });
+
     }).catch((err) => {
       console.error(err);
       showError('Não foi possível acessar sua câmera/microfone. Verifique as permissões do navegador e recarregue a página.');
-      resetStartButton();
+      primaryActionBtn.disabled = false;
+      primaryActionBtn.textContent = 'Criar sala';
     });
   }
 
-  function tryBecomeHost(stream){
-    state.role = 'host';
-    applyRolePermissions();
-    state.roomId = FIXED_ROOM_ID;
-    let settled = false;
-    const hostPeer = new Peer(FIXED_ROOM_ID, { debug: 1 });
-    state.peer = hostPeer;
-
-    hostPeer.on('open', () => {
-      settled = true;
-      waitingText.textContent = 'Aguardando o outro participante entrar…';
-      subtitleText.textContent = 'Você está no estúdio. A chamada começa assim que o outro lado entrar.';
+  inviteCopyBtn.addEventListener('click', () => {
+    inviteLinkInput.select();
+    navigator.clipboard.writeText(inviteLinkInput.value).then(() => {
+      inviteCopyBtn.textContent = 'Copiado!';
+      setTimeout(() => { inviteCopyBtn.textContent = 'Copiar link'; }, 1800);
+    }).catch(() => {
+      document.execCommand('copy');
     });
+  });
 
-    hostPeer.on('call', (call) => {
-      state.call = call;
-      state.remotePeerId = call.peer;
-      call.answer(state.localStream);
-      call.on('stream', (remoteStream) => {
-        remoteVideo.srcObject = remoteStream;
-        enterStage();
-        onRemoteConnected();
-      });
-      call.on('close', onRemoteDisconnected);
-    });
-
-    hostPeer.on('connection', (conn) => setupDataConn(conn));
-
-    hostPeer.on('error', (err) => {
-      if (!settled && String(err.type) === 'unavailable-id'){
-        // Someone's already in the fixed address — join as guest instead.
-        try{ hostPeer.destroy(); }catch(e){}
-        joinAsGuest(stream);
-        return;
-      }
-      console.error(err);
-      showError('Erro de conexão (' + err.type + '). Verifique sua internet e tente novamente.');
-      resetStartButton();
-    });
-
-    hostPeer.on('disconnected', () => { if (state.peer === hostPeer) hostPeer.reconnect(); });
-  }
-
-  function joinAsGuest(stream){
+  /* ================= GUEST FLOW ================= */
+  function startGuest(roomId){
     state.role = 'guest';
     applyRolePermissions();
-    state.roomId = FIXED_ROOM_ID;
+    state.roomId = roomId;
+    primaryActionBtn.disabled = true;
+    primaryActionBtn.textContent = 'Ativando câmera…';
+    navigator.mediaDevices.getUserMedia({ video:true, audio:true }).then((stream) => {
+      state.localStream = stream;
+      localVideo.srcObject = stream;
 
-    const guestPeer = new Peer({ debug: 1 });
-    state.peer = guestPeer;
+      // Enter the stage right away — no need to wait for the host to be ready first.
+      enterStage();
+      remoteEmptyText.textContent = 'Conectando à sala…';
 
-    guestPeer.on('open', () => {
-      waitingText.textContent = 'Conectando ao estúdio…';
-      subtitleText.textContent = 'Entrando no estúdio…';
+      state.peer = new Peer({ debug: 1 });
 
-      const call = guestPeer.call(FIXED_ROOM_ID, stream);
-      state.call = call;
-      call.on('stream', (remoteStream) => {
-        remoteVideo.srcObject = remoteStream;
-        enterStage();
-        onRemoteConnected();
+      state.peer.on('open', () => {
+        const call = state.peer.call(state.roomId, state.localStream);
+        state.call = call;
+        call.on('stream', (remoteStream) => {
+          remoteVideo.srcObject = remoteStream;
+          onRemoteConnected();
+        });
+        call.on('close', onRemoteDisconnected);
+
+        const conn = state.peer.connect(state.roomId);
+        setupDataConn(conn);
       });
-      call.on('close', onRemoteDisconnected);
 
-      const conn = guestPeer.connect(FIXED_ROOM_ID);
-      setupDataConn(conn);
-    });
+      state.peer.on('call', (incomingCall) => {
+        if (incomingCall.metadata && incomingCall.metadata.kind === 'screen'){
+          incomingCall.answer();
+          incomingCall.on('stream', (screenStream) => { showScreenVideo(screenStream); });
+          incomingCall.on('close', () => { hideScreenVideo(); });
+        }
+      });
 
-    guestPeer.on('call', (incomingCall) => {
-      if (incomingCall.metadata && incomingCall.metadata.kind === 'screen'){
-        incomingCall.answer();
-        incomingCall.on('stream', (screenStream) => { showScreenVideo(screenStream); });
-        incomingCall.on('close', () => { hideScreenVideo(); });
-      }
-    });
+      state.peer.on('error', (err) => {
+        console.error(err);
+        if (String(err.type) === 'peer-unavailable'){
+          remoteEmptyText.textContent = 'Sala não encontrada ainda. Confirme se o anfitrião já entrou e tente recarregar.';
+        } else {
+          remoteEmptyText.textContent = 'Erro de conexão (' + err.type + '). Verifique sua internet.';
+        }
+      });
 
-    guestPeer.on('error', (err) => {
+      state.peer.on('disconnected', () => { state.peer.reconnect(); });
+
+    }).catch((err) => {
       console.error(err);
-      if (String(err.type) === 'peer-unavailable'){
-        showError('Não foi possível conectar ao estúdio. Espere alguns segundos e recarregue a página.');
-      } else {
-        showError('Erro de conexão (' + err.type + '). Verifique sua internet e tente novamente.');
-      }
-      resetStartButton();
+      showError('Não foi possível acessar sua câmera/microfone. Verifique as permissões do navegador e recarregue a página.');
+      primaryActionBtn.disabled = false;
+      primaryActionBtn.textContent = 'Entrar na sala';
     });
-
-    guestPeer.on('disconnected', () => { if (state.peer === guestPeer) guestPeer.reconnect(); });
   }
 
   /* ---------------- Editable side panels (host-controlled, synced to guest) ---------------- */
@@ -1569,6 +1661,8 @@
       slideshowBtn.style.display = 'none';
       camShrinkBtn.style.display = 'none';
       camGrowBtn.style.display = 'none';
+      localCamSizeCtrl.style.display = 'none';
+      remoteCamSizeCtrl.style.display = 'none';
     }
   }
 
@@ -1579,12 +1673,25 @@
     initEditablePanels();
     const savedCover = localStorage.getItem(LS_COVER);
     if (savedCover) showCover(savedCover);
+    const params = new URLSearchParams(window.location.search);
+    const room = params.get('room');
 
-    primaryActionBtn.addEventListener('click', () => {
-      clearError();
-      state.myName = nameInput.value.trim();
-      beginConnection();
-    });
+    if (room){
+      subtitleText.textContent = 'Você foi convidado para o Direto da Estante. Digite seu nome e entre na sala.';
+      primaryActionBtn.textContent = 'Entrar na sala';
+      primaryActionBtn.addEventListener('click', () => {
+        clearError();
+        state.myName = nameInput.value.trim();
+        startGuest(room);
+      });
+    } else {
+      primaryActionBtn.textContent = 'Criar sala';
+      primaryActionBtn.addEventListener('click', () => {
+        clearError();
+        state.myName = nameInput.value.trim();
+        startHost();
+      });
+    }
   }
 
   if (typeof Peer === 'undefined'){
